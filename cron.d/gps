@@ -1,0 +1,9 @@
+MAILTO=""
+
+# restart receivermulti once an hour - which will fail if it already runs
+# please modify the names of the directories below to your setup
+# This example is for Amazon AWS where the script runs on user ec2-user
+
+1 * * * * ec2-user cd /var/www/sites/gps && php receivermulti.php >> /home/ec2-user/gps_server/gpslog.log 2>&1
+
+
