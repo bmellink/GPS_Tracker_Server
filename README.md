@@ -12,7 +12,7 @@ A ```cron``` configuration is provided as example how to implement a mechanism t
 
 The ```gpsmap.html``` file contains all the JavaScript logic to call the Google Maps API. The Google servers will then call the ```generate_kml.php``` script to retreive the KML based coordinates from the MYSQL database for a given data to be plotted on the map. The html file uses Bootstrap to resize to the screen.
 
-![Website Client View](WebsiteClientView.png?raw=true|height=300 "Website Client View")
+<img src="https://github.com/bmellink/GPS_Tracker_Server/raw/master/WebsiteClientView.png" align="left" height="400">
 
 A user can only click on calendar dates for which data is available in the database. The JavaScript will then instruct the Google servers to load the KML file for that date. 
 
