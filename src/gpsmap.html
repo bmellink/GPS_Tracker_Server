@@ -79,6 +79,7 @@
 		var timer = 0; // refresh kml file when we are looking at today's track
 		
 		function initMap() {
+		  // Note: the initMap function will be called from a callback function defined in mapsconfig.js
 		  map = new google.maps.Map(document.getElementById('map'), {
 		    center: new google.maps.LatLng(52.0, 5.0),
 		    zoom: 6.5,
@@ -105,26 +106,26 @@
 
 		  	// Show summary table in 'short' DIV
 		  	var msgcnt = desc.powererr.length + desc.chargeerr.length + desc.shockerr.length + desc.starterr.length;
-		  	$("#short").html('<p><b>' + desc.date + '</b></p>' +
+		  	$("#short").html('<p><b><span id="infotag">' + desc.date + '</span></b></p>' +
 		  		'<table><tr><td>Trips:&nbsp;</td><td>'+ 
 		  		(desc.trips.length>0 ? '<b>'+desc.trips.length+'</b>' : 'None') +
-		  		'</td></tr><tr><td>Messages:&nbsp;</td><td>'+
+		  		'</td></tr><tr><td>Events:&nbsp;</td><td>'+
 		  		(msgcnt>0 ? '<b>'+msgcnt+'</b>' : 'None')+
 		  		'</td></tr><tr><td>First:&nbsp;</td><td><b>' + 
-		  		(desc.firstone.datetime ? desc.firstone.datetime.substr(11) : '') + 
+		  		(desc.firstone.gpstime ? desc.firstone.gpstime.substr(0,5) : '') + 
 		  		'</b></td></tr><tr><td>Last:&nbsp;</td><td><b>' + 
-		  		(desc.lastone.datetime ? desc.lastone.datetime.substr(11) : '') + 
+		  		(desc.lastone.gpstime ? desc.lastone.gpstime.substr(0,5) : '') + 
 		  		'</b></td></tr></table>');
 
-		  	// Update DIV with info meta data in infoA and infoB
-		  	// infoA and infoB blocks have the same data, but only one is visible at any given time based on the 'lg' screen
-		  	// width setting in Bootstrap: infoA on wide screens (1200px and more) and infoB on narrow screens (<1200px)
+		  	// Update DIV with info meta data in infoA and infoB. infoA and infoB blocks have the same data, 
+		  	// but only one is visible at any given time based on the 'lg' screen width setting in Bootstrap: 
+		  	// infoA on wide screens (1200px and more) and infoB on narrow screens (<1200px)
 		  	var txt = '<table>';
 		  	txt += eventtable(desc.trips,'Trip Start');
+		  	txt += eventtable(desc.starterr,'Motor Start');
 		  	txt += eventtable(desc.powererr,'Power Lost');
 		  	txt += eventtable(desc.chargeerr,'Charging');
 		  	txt += eventtable(desc.shockerr,'Shock Move');
-		  	txt += eventtable(desc.starterr,'Motor Start');
 		  	txt += '</table>';
 		  	$("#infoA").html(txt);
 		  	$("#infoB").html(txt);
@@ -139,10 +140,12 @@
 		  });
 		  
 		  kmlLayer.addListener('click', function(event) {
-		  	// do something when clicking on the trip path itself.. currenlty we do nothing
+		  	// do something when clicking on the trip path or pushpin
+		  	var content = event.featureData.infoWindowHtml;
+		  	$('#infotag').html(event.featureData.name);
 	      });
 		}
-		// See https://bootstrap-datepicker.readthedocs.io/en/latest/options.html
+		// Datepicker options, see https://bootstrap-datepicker.readthedocs.io/en/latest/options.html
 		$('#datepicker').datepicker({
 			beforeShowDay: function(date) {
 				// highligt (bold) the dates where we have GPS data that suggests our gps tracker has moved
@@ -165,7 +168,7 @@
 			if (eventarray.length>0) {
 		  		txt = '<tr><th>'+header+'&nbsp;</th><th>Until&nbsp;&nbsp;&nbsp;</th><th>Duration</th></tr>';
 			  	eventarray.forEach(function(trip) {
-			  		// dates are: 2019-05-12 12:30:32
+			  		// dates are formatted like: 2019-05-12 12:30:32
 			  		txt += '<tr><td>' + trip.start.datetime.slice(-8,-3) + '</td><td>' + trip.end.datetime.slice(-8,-3) + '</td><td>' + (trip.duration<60 ? trip.duration : Math.floor(trip.duration/60) + " hrs " + trip.duration%60) +' min</td></tr>';
 			  	});
 			  	txt += '<tr></tr>';

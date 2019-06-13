@@ -8,6 +8,13 @@ Receive GPS location data (user GPRS link) from a TK103 gps tracker device and s
 This code read the database with GPS data (created by receivermulti.php) and creates a KML file (to STDOUT)
 This means the php file can be called from a web server
 
+Note: In the future this code could be rewritten to use maps data layer.
+See https://developers.google.com/maps/documentation/javascript/datalayer
+
+Revisions:
+- 1 Jun 2019: initial coding
+- 10 Jun: first github release
+- 13 Jun: added pin points, clean up code and layout
 */
 
 error_reporting(E_ERROR | E_PARSE);
@@ -29,15 +36,13 @@ ORM::configure('driver_options', array(PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAME
 
 date_default_timezone_set(DBTIMEZONE);
 
-// print_r($_GET);
 // Arguments are:
-//  rnd = random number to ensure Google does not cache our kml file
 //  date = date in format YYYY-MM-DD
 //  sn = serial number
-//
+//  rnd = random number to ensure Google does not cache our kml file (ignored, used to force cache)
 
-// allow running the script from the web server and local (for testing)
-// if date is not specified, we will set date to the last latest date we have data later on
+// allow running the script from the web server and using php manually on server (for testing)
+// if date is not specified, we will set date to the most recent date we have data in the database
 if (isset($_SERVER["REMOTE_ADDR"])) {
   // normal mode: from server
   $sn = (isset($_GET['sn']) ? $_GET['sn'] : 0) * 1;
@@ -50,7 +55,7 @@ if (isset($_SERVER["REMOTE_ADDR"])) {
 
 $lastdate=$firstdate=date('Y-m-d');
 
-// get a list of all available dates
+// get a list of all available dates we have for this tracker in the database
 $availdates = Model::factory('Gpsdata')
         ->where_equal('serial', $sn)
         ->select_expr('date(datetime)', 'date')
@@ -62,10 +67,10 @@ $availdates = Model::factory('Gpsdata')
         ->order_by_desc('date')
         ->find_many();
 
-// create an array with all dates for which we have data 
+// create $alldates array with all dates for which we have data 
 // also indicate with the flag 'ismoved' if on the given date gps coordinates are spread wider
 // then the minimum threshold defined in MINMOVELATLONG
-// Always include the last date for which we have data in this list (ismoved==true)
+// Always include the most recent date for which we have data in this list (ismoved==true)
 // also assign $date in case it is not supplied as commandline argument
 if (!$availdates) $alldates = 'No data'; else {
   $alldates = array();
@@ -80,7 +85,7 @@ if (!$availdates) $alldates = 'No data'; else {
   }
 }
 
-// get all waypoints at the given date
+// get all waypoints for a given date
 // The GPS tracker often sends the same data more than once, we filter out duplicates
 $datarec = Model::factory('Gpsdata')
  				->select('*')
@@ -93,18 +98,19 @@ $datarec = Model::factory('Gpsdata')
  				->find_many();
  // print_r($datarec);
 
-// Now analyze these waypoints to figure out start/stop moments of trips
-// We do this my looking at the gps speed parameter. Speed should be > 1 km/hour during at least
+// Now analyze waypoints to figure out start/stop moments of trips
+// We do this by looking at the gps speed parameter. Speed should be > 1 km/hour during at least
 // 4 consecutive gps coordinates (one or 2 points may point to random movement) 
-// We also consider at least 4 consecutive speed==0 as the end of a trip.
-$trips = array();
-$status = 0; //0=stop, 1,2,3=may move, 4=move, 5,6,7=may stop
+// We also consider at least 4 consecutive speed==0 readings as the end of a trip.
+// Note: alternative approach would be use bit 0 of the status column.
+$trips = $tripids = array();
+$status = 0; // 0=stop, 1,2,3=may move, 4=move, 5,6,7=may stop
 $tripstart = $lastone = $firstone = array();
 
 // status/alarm codes based on bits
-$powererr = array(); // power lost (1 on bit 7)
-$starterr = array();  // start alarm (1 on bit 6)
-$shockerr = array(); // movement (error 7) 
+$powererr = array();  // power lost (1 on bit 7)
+$starterr = array();  // start motor (1 on bit 6)
+$shockerr = array();  // movement (error 7) 
 $chargeerr = array(); // charging now (error 1 or 2?)
 $powerstat = $chargestat = $shockstat = $startstat = NULL; //copy of rec when became active
 
@@ -129,6 +135,7 @@ foreach($datarec as $i=>$rec) {
         if ($rec->speed == 0) {
           $d = date_diff(date_create($tripstart['gpstime']), date_create($rec->gpstime));
           $trips[] = array('start' => $tripstart, 'end' => $rec->as_array(), 'duration' => $d->h*60 + $d->i + ($d->s>=30 ? 1 : 0));
+          $tripids[] = $tripstart['id']; // for kml generation
           $status = 0; 
         } else $status = 4;
         break;
@@ -139,8 +146,10 @@ foreach($datarec as $i=>$rec) {
   errorhandling($chargeerr, $rec->err==2, $rec->as_array(), $startstat);
 }
 if ($status >= 4) {
+  // handle case when we have processed all data points and we are still moving
   $d = date_diff(date_create($tripstart['gpstime']), date_create($lastone['gpstime']));
   $trips[] = array('start' => $tripstart, 'end' => $lastone, 'duration' => $d->h*60 + $d->i + ($d->s>=30 ? 1 : 0));
+  $tripids[] = $tripstart['id']; // for kml generation
 }
 errorhandling($powererr, 0, $lastone, $powerstat);
 errorhandling($starterr, 0, $lastone, $startstat);
@@ -160,6 +169,7 @@ function errorhandling(&$err_array, $status, $rec, &$startmoment) {
   }
 }
 
+// see https://developers.google.com/kml/articles/phpmysqlkml
 // Creates the KML Document (which is in XML format)
 $dom = new DOMDocument('1.0', 'UTF-8');
 
@@ -170,8 +180,6 @@ $parNode = $dom->appendChild($node);
 // Creates a KML Document element and append it to the KML element.
 $dnode = $dom->createElement('Document');
 $docNode = $parNode->appendChild($dnode);
-
-//print_r($powererr);
 
 // The doc description field contains json_encoded data which we need to display the calendar view and other
 // information about a given date
@@ -193,42 +201,62 @@ $docDesc = $dom->createElement('description', json_encode(
 ));
 
 $docNode->appendChild($docDesc);
-$docName = $dom->createElement('name','Document Name');
+$docName = $dom->createElement('name','Tracker data '.$date);
 $docNode->appendChild($docName);
 
-// line style
-$StyleNode = $dom->createElement('Style');
-$StyleNode->setAttribute('id', 'mycolorpoly');
-$LineStyleNode = $dom->createElement('LineStyle');
-$LineColor = $dom->createElement('color','501400F0');
-$LineWidth = $dom->createElement('width','4');
-$PolyStyleNode = $dom->createElement('PolyStyle');
-$PolyColor = $dom->createElement('color','50140000');
-$LineStyleNode->appendChild($LineColor);
-$LineStyleNode->appendChild($LineWidth);
-$PolyStyleNode->appendChild($PolyColor);
-$StyleNode->appendChild($LineStyleNode);
-$StyleNode->appendChild($PolyStyleNode);
-$docNode->appendChild($StyleNode);
+// pick colors here: http://www.zonums.com/gmaps/kml_color/
+// Please note kml colors are defined as AABBGGRR and not as in CSS: RRGGBB / RRGGBBAA
 
+// line style color red
+$f = $dom->createDocumentFragment();
+$f->appendXML('<Style id="colorpoly0"><LineStyle><color>501400F0</color><width>4</width></LineStyle>'.
+              '<PolyStyle><color>50140000</color></PolyStyle></Style>');
+$docNode->appendChild($f);
+
+// line style color dark green
+$f = $dom->createDocumentFragment();
+$f->appendXML('<Style id="colorpoly1"><LineStyle><color>5f006E14</color><width>4</width></LineStyle>'.
+              '<PolyStyle><color>5f006E14</color></PolyStyle></Style>');
+$docNode->appendChild($f);
+
+// line style color dark green
+$f = $dom->createDocumentFragment();
+$f->appendXML('<Style id="colorpoly2"><LineStyle><color>55782814</color><width>4</width></LineStyle>'.
+              '<PolyStyle><color>55782814</color></PolyStyle></Style>');
+$docNode->appendChild($f);
+
+// red colored dot
+$f = $dom->createDocumentFragment();
+$f->appendXML('<Style id="red"><IconStyle>'.
+        '<Icon><href>https://www.google.com/intl/en_us/mapfiles/ms/icons/red-dot.png</href></Icon>'.
+        '</IconStyle></Style>');
+$docNode->appendChild($f);
+
+// green colored dot
+$f = $dom->createDocumentFragment();
+$f->appendXML('<Style id="green"><IconStyle>'.
+        '<Icon><href>https://www.google.com/intl/en_us/mapfiles/ms/icons/green-dot.png</href></Icon>'.
+        '</IconStyle></Style>');
+$docNode->appendChild($f);
+
+// blue colored dot
+$f = $dom->createDocumentFragment();
+$f->appendXML('<Style id="blue"><IconStyle>'.
+        '<Icon><href>https://www.google.com/intl/en_us/mapfiles/ms/icons/blue-dot.png</href></Icon>'.
+        '</IconStyle></Style>');
+$docNode->appendChild($f);
+
+$toggle = 0;  // alternate colors of trip segments (0,1,2)
 
 $PlacemarkNode = $dom->createElement('Placemark');
 $docNode->appendChild($PlacemarkNode);
-$PlaceStyle = $dom->createElement('styleUrl','#mycolorpoly');
+$PlaceStyle = $dom->createElement('styleUrl','#colorpoly'.$toggle);
 $PlacemarkNode->appendChild($PlaceStyle);
 $LineString = $dom->createElement('LineString');
 $PlacemarkNode->appendChild($LineString);
 
 $coorStr ="";
 $timesave=0; 
-
-/* nog doen:
-- huidige positie
-- geef pinpoints voor start/einde en pauze plekken
-- statistieken voor hoe lang een trip heeft geduurd
-- in html met een cvookie bepalen welk serienummer ik heb
-
-*/
 
 foreach($datarec as $i=>$rec) {
   // Creates a coordinates element and gives it the value of the lng and lat columns from the results.
@@ -239,36 +267,41 @@ foreach($datarec as $i=>$rec) {
 
   // add the first timestamp in the description within Placemark
   if ($i==0) {
-  	$PlaceDesc = $dom->createElement('description',$rec->gpstime);
+  	$PlaceDesc = $dom->createElement('description','Start at '.$rec->gpstime);
     $PlacemarkNode->appendChild($PlaceDesc);
-  	$PlaceName = $dom->createElement('name','Name='.$rec->gpstime);
+  	$PlaceName = $dom->createElement('name','Start at '.substr($rec->gpstime,0,5));
     $PlacemarkNode->appendChild($PlaceName);
   }
 
-  // If the time interval between the current and prior point is larger than TIMEGAP 
-  // or if we have a new date, we will create a new LineString 
+  // we will create a new LineString if:
+  // - the time interval between the current and prior point is larger than TIMEGAP 
+  // - if we cross the day boundary (does not happen in most cases) [Note: date('z') gives day in year 0..365]
+  // - if we start a new trip (based on $tripids array) 
 
-  if ($rec->err==0) {
-    if ($i>0 && ($t>$timesave+TIMEGAP || date('z',$t)!=date('z',$timesave))) { // date('z') gives day in year 0..365
-    	// too big a time gap between points or new day, close LineString and create a new one
-    	$coorNode = $dom->createElement('coordinates', $coorStr);
-    	$LineString->appendChild($coorNode);
-    	// and create a new one
-    	$PlacemarkNode = $dom->createElement('Placemark');
-    	$docNode->appendChild($PlacemarkNode);
-     	$PlaceDesc = $dom->createElement('description',$rec->gpstime);
-      $PlacemarkNode->appendChild($PlaceDesc);
-     	$PlaceName = $dom->createElement('name','Name='.$rec->gpstime);
-      $PlacemarkNode->appendChild($PlaceName);
-    	$PlaceStyle = $dom->createElement('styleUrl','#mycolorpoly');
-    	$PlacemarkNode->appendChild($PlaceStyle);
-    	$LineString = $dom->createElement('LineString');
-    	$PlacemarkNode->appendChild($LineString);
-     	$coorStr = $hst;
-    } else {
-    	// append coordinate to string
-    	$coorStr .= $hst;
-    }
+  if ($i>0 && ($t>$timesave+TIMEGAP || date('z',$t)!=date('z',$timesave) || in_array($rec->id, $tripids) )) { 
+
+  	// We include the current lat/long in case we move to new trip (so are lines are not broken).
+    // In other cases we do not include the current coordinate
+  	$coorNode = $dom->createElement('coordinates', $coorStr.(in_array($rec->id, $tripids) ? $hst : ''));
+  	$LineString->appendChild($coorNode);
+  	// and create a new one
+  	$PlacemarkNode = $dom->createElement('Placemark');
+  	$docNode->appendChild($PlacemarkNode);
+   	$PlaceDesc = $dom->createElement('description','Start at '.$rec->gpstime);
+    $PlacemarkNode->appendChild($PlaceDesc);
+   	$PlaceName = $dom->createElement('name','Start at '.substr($rec->gpstime,0,5));
+    $PlacemarkNode->appendChild($PlaceName);
+    $toggle++; 
+    if ($toggle>2) $toggle=0;
+  	$PlaceStyle = $dom->createElement('styleUrl','#colorpoly'.$toggle);
+    
+  	$PlacemarkNode->appendChild($PlaceStyle);
+  	$LineString = $dom->createElement('LineString');
+  	$PlacemarkNode->appendChild($LineString);
+   	$coorStr = $hst;  // start of new line coordinates
+  } else {
+  	// simply append coordinate to string
+  	$coorStr .= $hst;
   }
   $timesave = $t;
 }
@@ -276,10 +309,34 @@ foreach($datarec as $i=>$rec) {
 $coorNode = $dom->createElement('coordinates', $coorStr);
 $LineString->appendChild($coorNode);
 
+function addplacemarkpin($id, $name, $lat, $long, $styleUrl) {
+  global $docNode, $dom;
+  $PlacemarkNode = $dom->createElement('Placemark');
+  $PlacemarkNode->setAttribute('id', 'id'.$id);
+  $PlaceName = $dom->createElement('name', $name);
+  $PlacemarkNode->appendChild($PlaceName);
+  $PlacemarkPoint = $dom->createElement('Point');
+  $coorNode = $dom->createElement('coordinates', $long.','.$lat.',0');
+  $PlacemarkPoint->appendChild($coorNode);
+  $PlacemarkNode->appendChild($PlacemarkPoint);
+  $StyleUrl = $dom->createElement('styleUrl', $styleUrl);
+  $PlacemarkNode->appendChild($StyleUrl);
+  $docNode->appendChild($PlacemarkNode);
+}
+
+// show green pin/dot at the start of each trip
+foreach ($trips as $i=>$trip) {
+  $rec = $trip['start'];
+  addplacemarkpin($rec['id'], 'Trip: '.(substr($rec['gpstime'],0,5)).' -> '.(substr($trip['end']['gpstime'],0,5)), $rec['lat'], $rec['long'], '#green');
+}
+
+// show red pin/dot at the last entry we have
+if (!empty($lastone)) {
+  addplacemarkpin($lastone['id'], 'Last position '.substr($lastone['gpstime'],0,5), $lastone['lat'], $lastone['long'], '#red');
+}
+
 // now generate our XML data
 $kmlOutput = $dom->saveXML();
 header('Content-type: application/vnd.google-earth.kml+xml');
 echo $kmlOutput;
-
-
 ?>
