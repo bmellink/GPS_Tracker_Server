@@ -73,9 +73,10 @@
 		var map;
 		var sn = getUrlParam('key', ''); 
 		var mydir= window.location.href.split('/').slice(0, -1).join('/')+'/';
-		var srcbase = mydir + 'generate_kml.php?rnd=' + Math.random() + '&sn=' + sn;
+		var srcbase = mydir + 'generate_kml.php?sn=' +sn + '&rnd=';
 		var kmlLayer;
-		var desc = ''; // description kml file will contain parsed json string
+		var desc = ''; // description tag in kml file will contain parsed json string
+		var timer = 0; // refresh kml file when we are looking at today's track
 		
 		function initMap() {
 		  map = new google.maps.Map(document.getElementById('map'), {
@@ -84,26 +85,40 @@
 		    mapTypeId: 'terrain'
 		  });
 
-		  kmlLayer = new google.maps.KmlLayer(srcbase, {
+		  kmlLayer = new google.maps.KmlLayer(srcbase + Math.random(), {
 		    suppressInfoWindows: true,
 		    preserveViewport: false,
 		    map: map
 		  });
 
 		  kmlLayer.addListener('metadata_changed', function() {
-		  	// when kml data is loaded, we update our datepicker layout
+		  	// Code to run when kml data is loaded
+		  	// Stop refresh timer if it runs 
+		  	if (timer!=0) clearTimeout(timer);
+		  	timer = 0;
+
+		  	// Update datepicker layout, so the user can only select dates for which we have data
 		  	desc = JSON.parse(this.metadata.description);
 		  	$('#datepicker').datepicker('setStartDate', desc.firstdate);
 		  	$('#datepicker').datepicker('setEndDate', desc.lastdate);
 		  	$('#datepicker').datepicker('update', desc.date);
+
+		  	// Show summary table in 'short' DIV
 		  	var msgcnt = desc.powererr.length + desc.chargeerr.length + desc.shockerr.length + desc.starterr.length;
 		  	$("#short").html('<p><b>' + desc.date + '</b></p>' +
 		  		'<table><tr><td>Trips:&nbsp;</td><td>'+ 
 		  		(desc.trips.length>0 ? '<b>'+desc.trips.length+'</b>' : 'None') +
 		  		'</td></tr><tr><td>Messages:&nbsp;</td><td>'+
 		  		(msgcnt>0 ? '<b>'+msgcnt+'</b>' : 'None')+
-		  		'</td></tr></table>');
-		  	// also update div with info meta data
+		  		'</td></tr><tr><td>First:&nbsp;</td><td><b>' + 
+		  		(desc.firstone.datetime ? desc.firstone.datetime.substr(11) : '') + 
+		  		'</b></td></tr><tr><td>Last:&nbsp;</td><td><b>' + 
+		  		(desc.lastone.datetime ? desc.lastone.datetime.substr(11) : '') + 
+		  		'</b></td></tr></table>');
+
+		  	// Update DIV with info meta data in infoA and infoB
+		  	// infoA and infoB blocks have the same data, but only one is visible at any given time based on the 'lg' screen
+		  	// width setting in Bootstrap: infoA on wide screens (1200px and more) and infoB on narrow screens (<1200px)
 		  	var txt = '<table>';
 		  	txt += eventtable(desc.trips,'Trip Start');
 		  	txt += eventtable(desc.powererr,'Power Lost');
@@ -113,32 +128,39 @@
 		  	txt += '</table>';
 		  	$("#infoA").html(txt);
 		  	$("#infoB").html(txt);
+
+		  	// if we look at today's data, we will refresh the kml file once per minute (random url to overrule Google cache)
+		  	if (desc.age<1200) {
+		  		// last record less than 20 minutes old
+		  		timer = setTimeout(function() {
+		  		  kmlLayer.setUrl(srcbase + Math.random() + '&date=' + $('#datepicker').datepicker('getFormattedDate'));
+		  		}, 60000);
+		  	}
 		  });
 		  
 		  kmlLayer.addListener('click', function(event) {
-	        // var content = event.featureData.infoWindowHtml; // full div tag
-	        // event.featureData.name contains name if property exists in kml
-	        // $("#addontext").html('Trip start at ' + event.featureData.description);
+		  	// do something when clicking on the trip path itself.. currenlty we do nothing
 	      });
 		}
 		// See https://bootstrap-datepicker.readthedocs.io/en/latest/options.html
 		$('#datepicker').datepicker({
 			beforeShowDay: function(date) {
-				// highligt (bold) the dates where we have trip data
+				// highligt (bold) the dates where we have GPS data that suggests our gps tracker has moved
 				var ret = "";
 				var d = formatDate(date);
 				if (Array.isArray(desc.alldates)) desc.alldates.forEach(function(entry) {
-					if (entry.value == d && entry.hastrip) ret = "highlighttrip";
+					if (entry.value == d && entry.ismoved) ret = "highlighttrip";
 				});
 				return ret;
 			}
 		});
 		$('#datepicker').on('changeDate', function() {
-			// click on date, change the url of the kml file
-		    kmlLayer.setUrl(srcbase + '&date=' + $('#datepicker').datepicker('getFormattedDate'));
+			// click on a date, ensure we instruct Google servers to load the kml file from our server
+		    kmlLayer.setUrl(srcbase + Math.random() + '&date=' + $('#datepicker').datepicker('getFormattedDate'));
 		});
 
 		function eventtable(eventarray, header) {
+			// returns (part of) table entries for events
 			var txt='';
 			if (eventarray.length>0) {
 		  		txt = '<tr><th>'+header+'&nbsp;</th><th>Until&nbsp;&nbsp;&nbsp;</th><th>Duration</th></tr>';
@@ -150,8 +172,9 @@
 		  	}
 		  	return txt;
 		}
-		// convert date to YYYY-MM-DD format
+		
 		function formatDate(date) {
+			// convert date to YYYY-MM-DD format
 	 	    var d = new Date(date),
 	        month = '' + (d.getMonth() + 1),
 	        day = '' + d.getDate(),
@@ -162,7 +185,8 @@
 
 		    return [year, month, day].join('-');
 		}
-		function getUrlParam(parameter, defaultvalue){
+		function getUrlParam(parameter, defaultvalue) {
+		   // get variable name from the url
  		   var urlparameter = defaultvalue;
     		if (window.location.href.indexOf(parameter) > -1) {
 		        urlparameter = getUrlVars()[parameter];
@@ -170,6 +194,7 @@
     		return urlparameter;
 		}
 		function getUrlVars() {
+			// get all varaiables from url
 		    var vars = {};
 		    var parts = window.location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
 		        vars[key] = value;
@@ -177,10 +202,8 @@
 		    return vars;
 		}
 	</script>
-	<script async defer
-	src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDJ6DmjPLZljv-BxNRAg91TWBLseto6B8g&callback=initMap">			
-    // Make sure you enter your own key in the above script as the key in this example is restricted to my own installation.
-	// See https://developers.google.com/maps/documentation/javascript/get-api-key to get your own key
+	<script async defer src="mapsconfig.js">
+		// external file that contains our Google maps API key
 	</script>
 </body>
 

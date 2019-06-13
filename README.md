@@ -16,7 +16,7 @@ The ```gpsmap.html``` file contains all the JavaScript logic to call the Google 
 
 A user can only click on calendar dates for which data is available in the database. The JavaScript will then instruct the Google servers to load the KML file for that date. 
 
-Please note the Google servers will call ```generate_kml.php``` only once and then cache the KML data. The JavaScript code supplies unique URLs to the Google servers to ensure the KML view is correctly updated when needed. This means the map will not be update dynamically if your GPS coordinates change. A browser refresh will force a new KML cache. For more information on KML layers, see [https://developers.google.com/maps/documentation/javascript/kmllayer]
+Please note the Google servers will call ```generate_kml.php``` only once and then cache the KML data. The JavaScript code supplies unique URLs to the Google servers to ensure the KML view is correctly updated when needed. The JS code forces a request of a new KML file once a minute if the latest data is less than 10 minutes old. This should update the map dynamically if your GPS coordinates change. A browser refresh will also force a new KML cache. For more information on KML layers, see [https://developers.google.com/maps/documentation/javascript/kmllayer]
 
 ## Getting started
 
@@ -33,7 +33,7 @@ The software was tested with the following environments:
 
 ### Setting up the Google Maps API
 
-Refer to [https://developers.google.com/maps/documentation/javascript/get-api-key] to setup your own Google Maps API key. You need to register a credit card if you do this for the first time, but it is not likely you will be charged because the minimal charging thresholds are relatively high (see [https://cloud.google.com/maps-platform/pricing/sheet/])
+Refer to [https://developers.google.com/maps/documentation/javascript/get-api-key] to setup your own Google Maps API key. You need to register a credit card if you do this for the first time, but it is not likely you will be charged because the minimal charging thresholds are relatively high (see [https://cloud.google.com/maps-platform/pricing/sheet/]). Keys can be managed from the Google Cloud Platform console at [https://console.cloud.google.com/apis/credentials]. You need to specify the API key in ```mapsconfig.js```.
 
 ### Setting up the database
 
@@ -43,13 +43,12 @@ Please note the ```gps``` table contains a column ```serial``` that will contain
 
 ### Setting up the code
 
-- Modify the ```src/gpsmap.html``` file. Towards the end of the file, you need to add your Google Maps API key in the line (replacing XXXXXXXXXX):
-```
-	<script async defer src="https://maps.googleapis.com/maps/api/js?key=XXXXXXXXXX&callback=initMap">
-	</script>
-```
-
 - Copy the contents (including subdirectories) from the folder ```src``` to the root of your webserver html directory or to a subdirectory.
+- Edit the ```mapsconfig_sample.js``` file and replace XXXXXXXXXXXXXXXXX to your Google Maps API key in the line:
+```
+	$.getScript("https://maps.googleapis.com/maps/api/js?key=XXXXXXXXXXXXXXXXX&callback=initMap");
+```
+- Raneme ```mapsconfig_sample.js``` to ```mapsconfig.js```.
 - Edit the ```config_sample.php``` file and fill in the database parameters (name of database, credentials, time zone) and IP address and port number of the port exposed to the Internet.
 - Rename ```config_sample.php``` to ```config.php```.
 
@@ -66,7 +65,7 @@ You should see something like:
 ```
 22:01:01 (#8) Waiting for connection..0
 ```
-If the server terminates with an error, you may have a problem with firewall software running on the server. If the server runs normally, you should see a new record in the ```gps``` table with the current datetime stamp.
+If the server terminates with an error, you may have a problem with firewall software running on the server or the database connection. If the server runs normally, you should see a new record in the ```gps``` table with the current datetime stamp.
 
 ### Initial test - step 2
 
@@ -80,7 +79,7 @@ You should see the connection coming in on the server console
 22:02:26 (#15) New connection from xx.xx.xx.xx:xxxxxx
 22:02:26 (#15) Remote closed connection
 ```
-If you do not see the connection coming in, you have a problem with network routing or firewall setup.
+If you do not see the connection attempt, you have a problem with network routing or firewall setup.
 
 ### Setting up the cron script
 

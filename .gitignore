@@ -1,4 +1,6 @@
 #
 old/*
-config.php
+src/config.php
+src/mapsconfig.js
 .DS_Store
+test.php

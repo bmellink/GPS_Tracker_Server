@@ -17,4 +17,6 @@ define('GPSPORT', "tcp://192.168.1.1:4122");
 
 define('TIMEGAP', 3600); // number of seconds (3600=1 hour) between individual database records when the front end maps display will asume a separate segment should be shown on the map
 
+define('MINMOVELATLONG', 0.01); // if during the day the lat+long coordates move above this threshold, we assume there is movement on that date and highlight the date on the html calendar widget (number in degrees. 0.01=approx 1km)
+
 ?>

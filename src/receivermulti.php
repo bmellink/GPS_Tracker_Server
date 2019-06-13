@@ -127,6 +127,11 @@ ORM::configure('password', DBPASSWORD);
 ORM::configure('driver_options', array(PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAMES \'UTF8\', SQL_MODE = \'\''));
 date_default_timezone_set(DBTIMEZONE);
 
+// ensure we set our php script to the same time zone as the database
+date_default_timezone_set(DBTIMEZONE);
+// gps datetime info will be in GMT, so we need to know the difference
+$gmtdiff = date('Z'); // in seconds. positive for the East, negative for the west of GMT
+
 // setup socket server
 $socket = stream_socket_server(GPSPORT, $errno, $errstr, STREAM_SERVER_BIND|STREAM_SERVER_LISTEN);
 if (!$socket) {
@@ -242,6 +247,12 @@ while (true) {
             $havegps = true;
 
             // store in database
+            // please note we store two different times for each record:
+            // datetime - date/time we received this data
+            // gpstime - time when data was sent by the gps tracker. Some trackers may delay sending
+            //    data points or even may reverse order of sending (an error condition may only be sent one 1 minute later)
+            // you should always use gpsdata to find the position at a given time. gpsdata is received in UTC time zone
+            // and is converted in your local time zone
             $datarec = Model::factory('Gpsdata')->create();
             $datarec->datetime = date("Y-m-d H:i:s");
             $datarec->socket = (int) $sock;
@@ -256,7 +267,8 @@ while (true) {
             $datarec->status = $match[10]*1;
             $datarec->distance = $match[11]*1;
             $datarec->ip = $clients[(int) $sock]['ip'];
-            $datarec->gpstime = substr_replace(substr_replace($match[8], ':', 4, 0), ':',2,0);
+            $hst = substr_replace(substr_replace($match[8], ':', 4, 0), ':',2,0); // format HH:mm:ss
+            $datarec->gpstime = date("H:i:s", strtotime($hst)+$gmtdiff); // convert gmt to our time
             $datarec->save();
           } 
           // now analyze command from client and see if we need to respond
@@ -342,6 +354,7 @@ function logdata($cmd, $socket, $ip) {
   $datarec->status = 0;
   $datarec->distance = 0;
   $datarec->ip = $ip;
+  $datarec->gpstime = date("H:i:s");
   $datarec->save();
 }
 
