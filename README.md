@@ -49,9 +49,9 @@ Please note the ```gps``` table contains a column ```serial``` that will contain
 ### Setting up the code
 
 - Copy the contents (including subdirectories) from the folder ```src``` to the root of your webserver html directory or to a subdirectory.
-- Edit the ```mapsconfig_sample.js``` file and replace <span style="color:red">XXXXXXXXXXXXXXXXX</span> to your Google Maps API key in the line:
+- Edit the ```mapsconfig_sample.js``` file and replace XXXXXXXXXXXXXXXXX to your Google Maps API key in the line:
 ```
-	$.getScript("https://maps.googleapis.com/maps/api/js?key=<span style="color:red">XXXXXXXXXXXXXXXXX</span>&callback=initMap");
+	$.getScript("https://maps.googleapis.com/maps/api/js?key=XXXXXXXXXXXXXXXXX&callback=initMap");
 ```
 - Raneme ```mapsconfig_sample.js``` to ```mapsconfig.js```.
 - Edit the ```config_sample.php``` file and fill in the database parameters (name of database, credentials, time zone) and IP address and port number of the port exposed to the Internet.
