@@ -87,7 +87,7 @@ if (!$availdates) $alldates = 'No data'; else {
 
 // get all waypoints for a given date
 // The GPS tracker often sends the same data more than once, we filter out duplicates
-$datarec = Model::factory('Gpsdata')
+$daterecs = Model::factory('Gpsdata')
  				->select('*')
         ->where_equal('serial', $sn)
  				->where_not_equal('valid', 0)
@@ -96,7 +96,7 @@ $datarec = Model::factory('Gpsdata')
         ->group_by('gpstime')      // filter out duplicate entries
  				->order_by_asc('gpstime')  // this is sorting order of original gps signal
  				->find_many();
- // print_r($datarec);
+ // print_r($daterecs);
 
 // Now analyze waypoints to figure out start/stop moments of trips
 // We do this by looking at the gps speed parameter. Speed should be > 1 km/hour during at least
@@ -114,12 +114,12 @@ $shockerr = array();  // movement (error 7)
 $chargeerr = array(); // charging now (error 1 or 2?)
 $powerstat = $chargestat = $shockstat = $startstat = NULL; //copy of rec when became active
 
-foreach($datarec as $i=>$rec) {
+foreach($daterecs as $i=>$rec) {
   $lastone = $rec->as_array();
   if ($i==0) $firstone = $lastone;
   switch($status) {
     case 0: // stopped
-        if ($rec->speed > 1) $tripstart = $rec->as_array();
+        if ($rec->speed == 0) $tripstart = $rec->as_array();
     case 1: // may move step 1
     case 2: // may move step 2
     case 3: // may move step 3
@@ -258,7 +258,7 @@ $PlacemarkNode->appendChild($LineString);
 $coorStr ="";
 $timesave=0; 
 
-foreach($datarec as $i=>$rec) {
+foreach($daterecs as $i=>$rec) if ($rec->err==0) {
   // Creates a coordinates element and gives it the value of the lng and lat columns from the results.
   // Coordinates in database are already in DD (Decimal Degrees) format (52.1825)
 
@@ -287,9 +287,16 @@ foreach($datarec as $i=>$rec) {
   	// and create a new one
   	$PlacemarkNode = $dom->createElement('Placemark');
   	$docNode->appendChild($PlacemarkNode);
-   	$PlaceDesc = $dom->createElement('description','Start at '.$rec->gpstime);
+    $hst2 = 'Start at '.substr($rec->gpstime,0,5);
+    if (in_array($rec->id, $tripids)) {
+      // the segment is a start of a trip, we find the right one and overwrite the description
+      foreach ($trips as $trip) if ($trip['start']['id']==$rec->id) {
+        $hst2 = 'Trip: '.(substr($rec->gpstime,0,5)).' -> '.(substr($trip['end']['gpstime'],0,5));
+      }
+    }
+   	$PlaceDesc = $dom->createElement('description', $hst2);
     $PlacemarkNode->appendChild($PlaceDesc);
-   	$PlaceName = $dom->createElement('name','Start at '.substr($rec->gpstime,0,5));
+   	$PlaceName = $dom->createElement('name', $hst2);
     $PlacemarkNode->appendChild($PlaceName);
     $toggle++; 
     if ($toggle>2) $toggle=0;
@@ -324,16 +331,19 @@ function addplacemarkpin($id, $name, $lat, $long, $styleUrl) {
   $docNode->appendChild($PlacemarkNode);
 }
 
-// show green pin/dot at the start of each trip
-foreach ($trips as $i=>$trip) {
-  $rec = $trip['start'];
-  addplacemarkpin($rec['id'], 'Trip: '.(substr($rec['gpstime'],0,5)).' -> '.(substr($trip['end']['gpstime'],0,5)), $rec['lat'], $rec['long'], '#green');
+// show green pin at the start of the day with text showing stop time until the start of a trip
+// show green pin at the end position of the prior trip showing stop time 
+// show red pin at the position of the last entry with text showing stop time from end of trip until last entry
+
+$startwait = $firstone;  // first wait begins at the first record of the day
+foreach ($trips as $t=>$trip) {
+  addplacemarkpin($trip['start']['id'], 'Stop: '.(substr($startwait['gpstime'],0,5)).' -> '.(substr($trip['start']['gpstime'],0,5)), $startwait['lat'], $startwait['long'], '#green');
+ 
+  $startwait = $trip['end']; // next wait begins at the end of this trip
 }
 
-// show red pin/dot at the last entry we have
-if (!empty($lastone)) {
-  addplacemarkpin($lastone['id'], 'Last position '.substr($lastone['gpstime'],0,5), $lastone['lat'], $lastone['long'], '#red');
-}
+if (count($daterecs)>0)
+  addplacemarkpin($lastone['id'], 'Stop: '.(substr($startwait['gpstime'],0,5)).' -> '.(substr($lastone['gpstime'],0,5)), $lastone['lat'], $lastone['long'], '#red');
 
 // now generate our XML data
 $kmlOutput = $dom->saveXML();
