@@ -26,14 +26,19 @@ The software was tested with the following environments:
 - Webserver: Apache (any other should work fine)
 - PHP versions: 5.6 or 7.1
 - Database: MySQL 5.5
-- Google map API. See below
-- Bootstrap 4.3.1 to implement responsiveness
+- A Google Maps API. See below
 
-**Tip**: As soon as you move your application to production, it is a good practice to restrict your Google Map API to your website URL only (using ```HTTP Referrer``` settings) as the API key itself is visible in the source of the ```gpsmap.html``` file. See [https://developers.google.com/maps/faq#keysystem] how to do this.
+The software uses the following libraries/modules:
+- PHP Paris + Idiorm to implement a user friendly way to call MySQL
+- Bootstrap 4.3.1 to implement responsiveness
+- Bootstrap Datepicker 1.8.0
+- Jquery 3.4.0
 
 ### Setting up the Google Maps API
 
 Refer to [https://developers.google.com/maps/documentation/javascript/get-api-key] to setup your own Google Maps API key. You need to register a credit card if you do this for the first time, but it is not likely you will be charged because the minimal charging thresholds are relatively high (see [https://cloud.google.com/maps-platform/pricing/sheet/]). Keys can be managed from the Google Cloud Platform console at [https://console.cloud.google.com/apis/credentials]. You need to specify the API key in ```mapsconfig.js```.
+
+**Tip**: As soon as you move your application to production, it is a good practice to restrict your Google Map API to your website URL only (using ```HTTP Referrer``` settings) as the API key itself is visible in the source of the ```gpsmap.html``` file. See [https://developers.google.com/maps/faq#keysystem] how to do this.
 
 ### Setting up the database
 
@@ -44,9 +49,9 @@ Please note the ```gps``` table contains a column ```serial``` that will contain
 ### Setting up the code
 
 - Copy the contents (including subdirectories) from the folder ```src``` to the root of your webserver html directory or to a subdirectory.
-- Edit the ```mapsconfig_sample.js``` file and replace XXXXXXXXXXXXXXXXX to your Google Maps API key in the line:
+- Edit the ```mapsconfig_sample.js``` file and replace <span style="color:red">XXXXXXXXXXXXXXXXX</span> to your Google Maps API key in the line:
 ```
-	$.getScript("https://maps.googleapis.com/maps/api/js?key=XXXXXXXXXXXXXXXXX&callback=initMap");
+	$.getScript("https://maps.googleapis.com/maps/api/js?key=<span style="color:red">XXXXXXXXXXXXXXXXX</span>&callback=initMap");
 ```
 - Raneme ```mapsconfig_sample.js``` to ```mapsconfig.js```.
 - Edit the ```config_sample.php``` file and fill in the database parameters (name of database, credentials, time zone) and IP address and port number of the port exposed to the Internet.
