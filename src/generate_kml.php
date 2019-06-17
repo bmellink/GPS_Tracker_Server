@@ -117,7 +117,7 @@ $powerstat = $chargestat = $shockstat = $startstat = NULL; //copy of rec when be
 foreach($daterecs as $i=>$rec) {
   $lastone = $rec->as_array();
   if ($i==0) $firstone = $lastone;
-  switch($status) {
+  if ($i>0) switch($status) { // a trip is not allowed to start as the very first datapoint of the day
     case 0: // stopped
         if ($rec->speed == 0) $tripstart = $rec->as_array();
     case 1: // may move step 1
@@ -246,75 +246,104 @@ $f->appendXML('<Style id="blue"><IconStyle>'.
         '</IconStyle></Style>');
 $docNode->appendChild($f);
 
-$toggle = 0;  // alternate colors of trip segments (0,1,2)
+if (count($daterecs)>0) {
+  $toggle = 0;  // alternate colors of trip segments (0,1,2)
 
-$PlacemarkNode = $dom->createElement('Placemark');
-$docNode->appendChild($PlacemarkNode);
-$PlaceStyle = $dom->createElement('styleUrl','#colorpoly'.$toggle);
-$PlacemarkNode->appendChild($PlaceStyle);
-$LineString = $dom->createElement('LineString');
-$PlacemarkNode->appendChild($LineString);
+  $PlacemarkNode = $dom->createElement('Placemark');
+  $docNode->appendChild($PlacemarkNode);
+  $PlaceStyle = $dom->createElement('styleUrl','#colorpoly'.$toggle);
+  $PlacemarkNode->appendChild($PlaceStyle);
+  $LineString = $dom->createElement('LineString');
+  $PlacemarkNode->appendChild($LineString);
 
-$coorStr ="";
-$timesave=0; 
+  $coorStr ="";
+  $timesave=0; 
+  $istrip = false;
+  $hst2 = 'Stop: '.substr($firstone['gpstime'],0,5); // default description of placemark name+description
+  $prior = array();
 
-foreach($daterecs as $i=>$rec) if ($rec->err==0) {
-  // Creates a coordinates element and gives it the value of the lng and lat columns from the results.
-  // Coordinates in database are already in DD (Decimal Degrees) format (52.1825)
+  foreach($daterecs as $i=>$rec) if ($rec->err==0) {
+    // Creates a coordinates element and gives it the value of the lng and lat columns from the results.
+    // Coordinates in database are already in DD (Decimal Degrees) format (52.1825)
 
-  $t = strtotime($rec->gpstime);
-  $hst = ($rec->long) . ','  . ($rec->lat).",0 \n";
+    $t = strtotime($rec->gpstime);
+    $hst = ($rec->long) . ','  . ($rec->lat).",0 \n";
 
-  // add the first timestamp in the description within Placemark
-  if ($i==0) {
-  	$PlaceDesc = $dom->createElement('description','Start at '.$rec->gpstime);
-    $PlacemarkNode->appendChild($PlaceDesc);
-  	$PlaceName = $dom->createElement('name','Start at '.substr($rec->gpstime,0,5));
-    $PlacemarkNode->appendChild($PlaceName);
-  }
+    // we will create a new LineString if:
+    // - the time interval between the current and prior point is larger than TIMEGAP 
+    // - if we cross the day boundary (does not happen in most cases) [Note: date('z') gives day in year 0..365]
+    // - if we start a new trip (based on $tripids array) 
 
-  // we will create a new LineString if:
-  // - the time interval between the current and prior point is larger than TIMEGAP 
-  // - if we cross the day boundary (does not happen in most cases) [Note: date('z') gives day in year 0..365]
-  // - if we start a new trip (based on $tripids array) 
+    if ($i>0 && ($t>$timesave+TIMEGAP || date('z',$t)!=date('z',$timesave) || in_array($rec->id, $tripids) )) { 
 
-  if ($i>0 && ($t>$timesave+TIMEGAP || date('z',$t)!=date('z',$timesave) || in_array($rec->id, $tripids) )) { 
+      // we still need to update the description+name of the segment we just completed, as we now know how long it took
+      if (!$istrip) $hst2 .= ' -> '.substr($prior->gpstime,0,5);
+      //$PlaceDesc = $dom->createElement('description',$hst2);
+      //$PlacemarkNode->appendChild($PlaceDesc);
+      $PlaceName = $dom->createElement('name', $hst2);
+      $PlacemarkNode->appendChild($PlaceName);
+      // We include the current lat/long in case we move to new trip (so are lines are not broken).
+      // In other cases we do not include the current coordinate
+      $coorNode = $dom->createElement('coordinates', $coorStr.(in_array($rec->id, $tripids) ? $hst : ''));
+      $LineString->appendChild($coorNode);
 
-  	// We include the current lat/long in case we move to new trip (so are lines are not broken).
-    // In other cases we do not include the current coordinate
-  	$coorNode = $dom->createElement('coordinates', $coorStr.(in_array($rec->id, $tripids) ? $hst : ''));
-  	$LineString->appendChild($coorNode);
-  	// and create a new one
-  	$PlacemarkNode = $dom->createElement('Placemark');
-  	$docNode->appendChild($PlacemarkNode);
-    $hst2 = 'Start at '.substr($rec->gpstime,0,5);
-    if (in_array($rec->id, $tripids)) {
-      // the segment is a start of a trip, we find the right one and overwrite the description
-      foreach ($trips as $trip) if ($trip['start']['id']==$rec->id) {
-        $hst2 = 'Trip: '.(substr($rec->gpstime,0,5)).' -> '.(substr($trip['end']['gpstime'],0,5));
-      }
+    	// We not create a new placemark for the next line segment
+    	$PlacemarkNode = $dom->createElement('Placemark');
+    	$docNode->appendChild($PlacemarkNode);
+      
+      $hst2 = 'Stop: '.substr($rec->gpstime,0,5);
+      if ($istrip = in_array($rec->id, $tripids)) {
+        // the segment is a start of a trip, we find the right one and create the entire description
+        foreach ($trips as $trip) if ($trip['start']['id']==$rec->id) {
+          $hst2 = 'Trip: '.(substr($rec->gpstime,0,5)).' -> '.(substr($trip['end']['gpstime'],0,5));
+        }
+      } 
+
+      $toggle++; 
+      if ($toggle>2) $toggle=0;
+    	$PlaceStyle = $dom->createElement('styleUrl','#colorpoly'.$toggle);
+      
+    	$PlacemarkNode->appendChild($PlaceStyle);
+    	$LineString = $dom->createElement('LineString');
+    	$PlacemarkNode->appendChild($LineString);
+     	$coorStr = $hst;  // start of new line coordinates
+    } else {
+    	// simply append coordinate to string
+    	$coorStr .= $hst;
     }
-   	$PlaceDesc = $dom->createElement('description', $hst2);
-    $PlacemarkNode->appendChild($PlaceDesc);
-   	$PlaceName = $dom->createElement('name', $hst2);
-    $PlacemarkNode->appendChild($PlaceName);
-    $toggle++; 
-    if ($toggle>2) $toggle=0;
-  	$PlaceStyle = $dom->createElement('styleUrl','#colorpoly'.$toggle);
-    
-  	$PlacemarkNode->appendChild($PlaceStyle);
-  	$LineString = $dom->createElement('LineString');
-  	$PlacemarkNode->appendChild($LineString);
-   	$coorStr = $hst;  // start of new line coordinates
-  } else {
-  	// simply append coordinate to string
-  	$coorStr .= $hst;
+    $timesave = $t;
+    $prior = $rec;
   }
-  $timesave = $t;
+
+  // generate the remaining element of the last line segment
+  if (!$istrip) $hst2 .= ' -> '.substr($lastone['gpstime'],0,5);
+  //$PlaceDesc = $dom->createElement('description', $hst2);
+  //$PlacemarkNode->appendChild($PlaceDesc);
+  $PlaceName = $dom->createElement('name', $hst2);
+  $PlacemarkNode->appendChild($PlaceName);
+  $coorNode = $dom->createElement('coordinates', $coorStr);
+  $LineString->appendChild($coorNode);
+
+  // show green pin at the start of the day with text showing stop time until the start of a trip
+  // show green pin at the end position of the prior trip showing stop time 
+  // show red pin at the position of the last entry with text showing stop time from end of trip until last entry
+
+  $startwait = $firstone;  // first wait begins at the first record of the day
+  foreach ($trips as $t=>$trip) {
+    addplacemarkpin($trip['start']['id'], 'Stop: '.(substr($startwait['gpstime'],0,5)).' -> '.(substr($trip['start']['gpstime'],0,5)), $startwait['lat'], $startwait['long'], '#green');
+   
+    $startwait = $trip['end']; // next wait begins at the end of this trip
+  }
+
+  addplacemarkpin($lastone['id'], 'Stop: '.(substr($startwait['gpstime'],0,5)).' -> '.(substr($lastone['gpstime'],0,5)), $lastone['lat'], $lastone['long'], '#red');
+
 }
 
-$coorNode = $dom->createElement('coordinates', $coorStr);
-$LineString->appendChild($coorNode);
+
+// now generate our XML data
+$kmlOutput = $dom->saveXML();
+header('Content-type: application/vnd.google-earth.kml+xml');
+echo $kmlOutput;
 
 function addplacemarkpin($id, $name, $lat, $long, $styleUrl) {
   global $docNode, $dom;
@@ -331,22 +360,6 @@ function addplacemarkpin($id, $name, $lat, $long, $styleUrl) {
   $docNode->appendChild($PlacemarkNode);
 }
 
-// show green pin at the start of the day with text showing stop time until the start of a trip
-// show green pin at the end position of the prior trip showing stop time 
-// show red pin at the position of the last entry with text showing stop time from end of trip until last entry
 
-$startwait = $firstone;  // first wait begins at the first record of the day
-foreach ($trips as $t=>$trip) {
-  addplacemarkpin($trip['start']['id'], 'Stop: '.(substr($startwait['gpstime'],0,5)).' -> '.(substr($trip['start']['gpstime'],0,5)), $startwait['lat'], $startwait['long'], '#green');
- 
-  $startwait = $trip['end']; // next wait begins at the end of this trip
-}
 
-if (count($daterecs)>0)
-  addplacemarkpin($lastone['id'], 'Stop: '.(substr($startwait['gpstime'],0,5)).' -> '.(substr($lastone['gpstime'],0,5)), $lastone['lat'], $lastone['long'], '#red');
-
-// now generate our XML data
-$kmlOutput = $dom->saveXML();
-header('Content-type: application/vnd.google-earth.kml+xml');
-echo $kmlOutput;
 ?>
