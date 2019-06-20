@@ -113,8 +113,10 @@ $starterr = array();  // start motor (1 on bit 6)
 $shockerr = array();  // movement (error 7) 
 $chargeerr = array(); // charging now (error 1 or 2?)
 $powerstat = $chargestat = $shockstat = $startstat = NULL; //copy of rec when became active
+$numpoints = 0;
 
 foreach($daterecs as $i=>$rec) {
+  if ($rec->err==0) $numpoints++; // count points without errors.
   $lastone = $rec->as_array();
   if ($i==0) $firstone = $lastone;
   if ($i>0) switch($status) { // a trip is not allowed to start as the very first datapoint of the day
@@ -197,6 +199,7 @@ $docDesc = $dom->createElement('description', json_encode(
     'shockerr' => $shockerr,  // array of events related to shocking the gps tracker (on/off)
     'chargeerr' => $chargeerr,// array of events related to ecternal charging of boat battery (on/off)
     'age'      => (time() - strtotime($lastone['datetime'])), // age (in seconds) of last record
+    'numpoints'=> $numpoints,
   )
 ));
 
