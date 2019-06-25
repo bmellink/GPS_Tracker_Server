@@ -105,7 +105,7 @@ $daterecs = Model::factory('Gpsdata')
 // Note: alternative approach would be use bit 0 of the status column.
 $trips = $tripids = array();
 $status = 0; // 0=stop, 1,2,3=may move, 4=move, 5,6,7=may stop
-$tripstart = $lastone = $firstone = array();
+$tripstart = $tripend = $lastone = $firstone = array();
 
 // status/alarm codes based on bits
 $powererr = array();  // power lost (1 on bit 7)
@@ -128,6 +128,7 @@ foreach($daterecs as $i=>$rec) {
         if ($rec->speed > 1) $status++; else $status = 0;
         break;
     case 4: // moving
+        if ($rec->speed == 0) $tripend = $rec->as_array();
     case 5: // may stop step 1
     case 6: // may stop step 2
         if ($rec->speed == 0) $status++; else $status = 4;
@@ -135,10 +136,11 @@ foreach($daterecs as $i=>$rec) {
     case 7: // may stop step 3
     default:
         if ($rec->speed == 0) {
-          $d = date_diff(date_create($tripstart['gpstime']), date_create($rec->gpstime));
-          $trips[] = array('start' => $tripstart, 'end' => $rec->as_array(), 'duration' => $d->h*60 + $d->i + ($d->s>=30 ? 1 : 0));
+          $d = date_diff(date_create($tripstart['gpstime']), date_create($tripend['gpstime']));
+          $trips[] = array('start' => $tripstart, 'end' => $tripend, 'duration' => $d->h*60 + $d->i + ($d->s>=30 ? 1 : 0));
           $tripids[] = $tripstart['id']; // for kml generation
           $status = 0; 
+          $tripstart = $rec->as_array(); // could be start next trip if we have very short stop
         } else $status = 4;
         break;
   }

@@ -93,11 +93,14 @@
 		    map: map
 		  });
 
+		  // see https://developers.google.com/maps/documentation/javascript/events
+		  map.addListener('mousemove', function(e) { delayupdate(); });
+		  map.addListener('click', function(e) { delayupdate(); });
+		  map.addListener('drag', function(e) { delayupdate(); });
+		  map.addListener('zoom_changed', function(e) { delayupdate(); });
+
 		  kmlLayer.addListener('metadata_changed', function() {
 		  	// Code to run when kml data is loaded
-		  	// Stop refresh timer if it runs 
-		  	if (timer!=0) clearTimeout(timer);
-		  	timer = 0;
 
 		  	// Update datepicker layout, so the user can only select dates for which we have data
 		  	desc = JSON.parse(this.metadata.description);
@@ -135,10 +138,8 @@
 
 		  	// if we look at today's data, we will refresh the kml file once per minute (random url to overrule Google cache)
 		  	if (desc.age<1200) {
-		  		// last record less than 20 minutes old
-		  		timer = setTimeout(function() {
-		  		  kmlLayer.setUrl(srcbase + Math.random() + '&date=' + $('#datepicker').datepicker('getFormattedDate'));
-		  		}, 60000);
+		  		// last record less than 20 minutes old update every 60 seconds
+		  		timer = setTimeout(function() { kmlrefresh(); }, 60000);
 		  	}
 		  });
 		  
@@ -148,8 +149,9 @@
 		  	$('#infotag').html(event.featureData.name);
 	      });
 		}
-		// Datepicker options, see https://bootstrap-datepicker.readthedocs.io/en/latest/options.html
+		
 		$('#datepicker').datepicker({
+			// Datepicker options, see https://bootstrap-datepicker.readthedocs.io/en/latest/options.html
 			beforeShowDay: function(date) {
 				// highligt (bold) the dates where we have GPS data that suggests our gps tracker has moved
 				var ret = "";
@@ -160,10 +162,26 @@
 				return ret;
 			}
 		});
+		
 		$('#datepicker').on('changeDate', function() {
 			// click on a date, ensure we instruct Google servers to load the kml file from our server
-		    kmlLayer.setUrl(srcbase + Math.random() + '&date=' + $('#datepicker').datepicker('getFormattedDate'));
+		    kmlrefresh();
 		});
+
+		function delayupdate() {
+			// stop kml update for another 30 seconds while we are moving around
+			if (timer!=0) {
+				clearTimeout(timer);
+				timer = setTimeout(function() { kmlrefresh(); }, 30000);
+			}
+		}
+
+		function kmlrefresh() {
+		  	// Stop refresh timer if it runs 
+		  	if (timer!=0) clearTimeout(timer);
+		  	timer = 0;
+			kmlLayer.setUrl(srcbase + Math.random() + '&date=' + $('#datepicker').datepicker('getFormattedDate'));
+		}
 
 		function eventtable(eventarray, header) {
 			// returns (part of) table entries for events
@@ -191,6 +209,7 @@
 
 		    return [year, month, day].join('-');
 		}
+		
 		function getUrlParam(parameter, defaultvalue) {
 		   // get variable name from the url
  		   var urlparameter = defaultvalue;
@@ -199,6 +218,7 @@
         	}
     		return urlparameter;
 		}
+		
 		function getUrlVars() {
 			// get all varaiables from url
 		    var vars = {};
