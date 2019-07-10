@@ -39,16 +39,22 @@ The TK103 device sends string over GPRS socket connection that look like this
 - message body
 - trail char ')'
 
-Command codes all start with B for messages from device->server
-The server response commands all start with A 
+Command codes for messages from device->server all start with B. Implemented messages:
 BO01 - alarm
 BP00 - handshake
+BP01 - device software serial number
 BP02 - device is configured
 BP03 - device operated status
 BP05 - answer device login  - first
 BP12 - answer high and low speed limit
 BR00 - isochronous cont feedback
 BR01 - isometry continuous feedback
+
+The server response commands all start with A. Implemented messages:
+AP05 - Response to login BP05, 
+AP01 - Handshake response BP00, 
+AS01 - Alarm response to BO01, 
+AS02 - Alarm response to BO02
 
 The message body of the BP05/BR00/BR01 commands look like
 357857045206556190503A5210.8942N00428.4043E000.0134955000.0000000000L00000000
@@ -213,7 +219,7 @@ while (true) {
         // note: the closing bracket ')' is stripped off by explode()
         
         // first analyze command structure
-        if (preg_match('/\((\d{12})([AB][OPRSTUV]\d\d)(.+)/', $hst, $command)) {
+        if (preg_match('/\((\d{12})([AB][OPQRSTUVXY]\d\d)(.+)/', $hst, $command)) {
           /* this returns Array (
             [0] => (057045206556BP05357857045206556190503A5210.8942N00428.4043E000.0134955000.0000000000L00000000)
             [1] => 057045206556   --> serial number (12 bytes)
@@ -221,7 +227,7 @@ while (true) {
             [3] => 357857045206556190503A5210.8942N00428.4043E000.0134955000.0000000000L00000000 --> data
           ) 
           */
-          echo "\n".date("H:i:s")." (#".(int) $sock.") Cmd=".$command[2]." data=".$command[3]." ";
+          echo "\n".date("H:i:s")." (#".(int) $sock.") SN=".$command[1]." Cmd=".$command[2]." data=".$command[3]." ";
           
           $clients[(int) $sock]['serial'] = $command[1];
           $clients[(int) $sock]['time'] = time();
@@ -271,27 +277,44 @@ while (true) {
             $datarec->gpstime = date("H:i:s", strtotime($hst)+$gmtdiff); // convert gmt to our time
             $datarec->save();
           } 
+
           // now analyze command from client and see if we need to respond
           switch ($command[2]) {
             case 'BP05': // login, may includes gps if there is gps fix, should response with AP05
               echo "Login ";
-              sendcmd($sock,'AP05','');
+              sendcmd($sock, $command[1], 'AP05', '');
               break;
             case 'BP00': // handshake. data is like: 357857045206556HSO1a4
               echo "Handshake ";
-              sendcmd($sock,'AP01','HSO'); // will be sent a few times after login completed
+              sendcmd($sock, $command[1], 'AP01', 'HSO'); // will be sent a few times after login completed
               break;
             case 'BO01': // alarm message, includes gps
-              // alarm codes 0=power off, 1=accident, 2=robbery, 3=anti theft, 4=lowspeed, 5=overspeed, 6=geofence, 7=shock alarm
+              // alarm codes 
+              // 0:power off 
+              // 1:accident 
+              // 2:robbery 
+              // 3:anti theft
+              // 4:lowspeed
+              // 5:overspeed
+              // 6:geofence
+              // 7:shock alarm
               $alm = ($havegps ? $match[1] : '0');
               echo "Alarm=$alm ";
-              sendcmd($sock,'AS01',$alm); 
+              sendcmd($sock, $command[1], 'AS01', $alm); 
               break;
-            case 'BO02': // undefined, but probably another alarm meddage, includes gps, code in $match[1]
+            case 'BO02': // Alarm for data offset and messages return, includes gps, code in $match[1]
               $alm = ($havegps ? $match[1] : '0');
               echo "Alarm=$alm ";
-              sendcmd($sock,'AS02',$alm); // guess this should work
+              // alarmcodes: (no need to respond)
+              // 0:Cut of vehicle oil 
+              // 1:vehicle anti-theft alarm 
+              // 2:Vehiclerob (SOShelp) 
+              // 3:Happen accident 
+              // 4:Vehiclelow speed alarm 
+              // 5:Vehicleover speed alarm 
+              // 6:Vehicleout of Geo-fence
               break;
+            case 'BP01': // response of sw version number, no response
             case 'BP04': // answered calling message, includes gps data, no response
             case 'BR00': // isochronous feedback, includes GPS, no response - when moving or standing still? 
             case 'BR01': // isometry continuous feedback GPS, no response - when standing still once every 10 min
@@ -299,9 +322,11 @@ while (true) {
               break;
 
             default:
-              echo "Unknown command=".$command[2];  
+              echo "Unknown command=".$command[2]." ";  
           }
-        }  
+        } else {
+          if (strlen($hst)>1) echo "\n".date("H:i:s")." (#".(int) $sock.") Not recognized=".$hst." ";  
+        }
       } 
       // if the client closes the socket, we will also free up memory
       if (feof($sock)) {
@@ -320,9 +345,9 @@ fclose($socket);
 
 // ----------------------------------------------------------------------
 
-function sendcmd($sock, $cmd, $arg) {
+function sendcmd($sock, $serial, $cmd, $arg) {
   // return data to the device
-  fwrite($sock, "(".$command[1].$cmd.$arg.")\n");
+  fwrite($sock, "(".$serial.$cmd.$arg.")\n");
   echo "Send $cmd $arg ";
   fflush($sock); 
 }
