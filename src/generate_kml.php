@@ -93,6 +93,7 @@ $daterecs = Model::factory('Gpsdata')
  				->where_not_equal('valid', 0)
  				->where_not_equal('cmd','BP05') // may not have stable gps signal yet
         ->where_raw("date(datetime)=?", $date)
+        ->where_raw("abs(timediff(gpstime,time(datetime)))<1000") // some trackers (re)send old data
         ->group_by('gpstime')      // filter out duplicate entries
  				->order_by_asc('gpstime')  // this is sorting order of original gps signal
  				->find_many();
