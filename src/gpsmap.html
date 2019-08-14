@@ -16,6 +16,7 @@
 		  height: 370px;
 		  padding: 0;
 		  margin: 0;
+		  font-size: 0.9rem;
 		  }
 		#map {
 		  height: 480px;
@@ -52,8 +53,8 @@
 			<div class="col-12 col-md-6" id="map"></div>
 			<div class="col-12 col-md-6">
 				<div class="row">
-					<div class="col-7 col-md-12 col-lg-6 capture">
-						<div id="datepicker" data-date-format="yyyy-mm-dd" data-date-end-date="0d"  data-date-today-highlight=true></div>
+					<div class="col-7 col-md-12 col-lg-6 capture" style="text-align: center; padding-left: 2px; padding-right: 2px">
+						<div id="datepicker" data-date-format="yyyy-mm-dd" data-date-end-date="0d"  data-date-today-highlight=true style="display: inline-block;"></div>
 						<input type="hidden" id="my_hidden_input">
 					</div>
 					<div class="col-5 col-md-12 col-lg-6 capture" id="short">
@@ -110,28 +111,36 @@
 
 		  	// Show summary table in 'short' DIV
 		  	var msgcnt = desc.powererr.length + desc.chargeerr.length + desc.shockerr.length + desc.starterr.length;
-		  	$("#short").html('<p><b><span id="infotag">' + desc.date + '</span></b></p>' +
+		  	$("#short").html(
 		  		'<table><tr><td>Trips:&nbsp;</td><td>'+ 
 		  		(desc.trips.length>0 ? '<b>'+desc.trips.length+'</b>' : 'None') +
-		  		'</td></tr><tr><td>Events:&nbsp;</td><td>'+
+		  		'</td></tr><tr><td>Distance:&nbsp;</td><td><b>'+
+		  		(1*desc.distance.toFixed(1)) +
+		  		'</b> km </td></tr><tr><td>Duration:&nbsp;</td><td><b>'+
+		  		(desc.duration==0 ? 0 : Math.floor(desc.duration/60) + ":" + ('0'+desc.duration%60).slice(-2)) +
+		  		'</b> hrs </td></tr><tr><td>Moving:&nbsp;</td><td><b>'+
+		  		(desc.moving==0 ? 0 : Math.floor(desc.moving/60) + ":" + ('0'+desc.moving%60).slice(-2)) +
+		  		'</b> hrs </td></tr><tr><td>Pausing:&nbsp;</td><td><b>'+
+		  		(desc.duration-desc.moving==0 ? 0 : Math.floor((desc.duration-desc.moving)/60) + ":" + ('0'+(desc.duration-desc.moving)%60).slice(-2)) +
+		  		'</b> hrs </td></tr><tr><td>Events:&nbsp;</td><td>'+
 		  		(msgcnt>0 ? '<b>'+msgcnt+'</b>' : 'None')+
-		  		'</td></tr><tr><td>First:&nbsp;</td><td><b>' + 
+		  		'</td></tr><tr><td>Points:&nbsp;</td><td><b>' + 
+		  		(desc.numpoints) + 
+		  		'</b></td></tr><tr><td>First:&nbsp;</td><td><b>' + 
 		  		(desc.firstone.gpstime ? desc.firstone.gpstime.substr(0,5) : '') + 
 		  		'</b></td></tr><tr><td>Last:&nbsp;</td><td><b>' + 
 		  		(desc.lastone.gpstime ? desc.lastone.gpstime.substr(0,5) : '') + 
-		  		'</b></td></tr><tr><td>Points:&nbsp;</td><td><b>' + 
-		  		(desc.numpoints) + 
 		  		'</b></td></tr></table>');
 
 		  	// Update DIV with info meta data in infoA and infoB. infoA and infoB blocks have the same data, 
 		  	// but only one is visible at any given time based on the 'lg' screen width setting in Bootstrap: 
 		  	// infoA on wide screens (1200px and more) and infoB on narrow screens (<1200px)
 		  	var txt = '<table>';
-		  	txt += eventtable(desc.trips,'Trip Start');
-		  	txt += eventtable(desc.starterr,'Motor Start');
-		  	txt += eventtable(desc.powererr,'Power Lost');
-		  	txt += eventtable(desc.chargeerr,'Charging');
-		  	txt += eventtable(desc.shockerr,'Shock Move');
+		  	txt += eventtable1(desc.trips,'Trip Start');
+		  	txt += eventtable2(desc.starterr,'Motor Start');
+		  	txt += eventtable2(desc.powererr,'Power Lost');
+		  	txt += eventtable2(desc.chargeerr,'Charging');
+		  	txt += eventtable2(desc.shockerr,'Shock Move');
 		  	txt += '</table>';
 		  	$("#infoA").html(txt);
 		  	$("#infoB").html(txt);
@@ -143,11 +152,11 @@
 		  	}
 		  });
 		  
-		  kmlLayer.addListener('click', function(event) {
-		  	// do something when clicking on the trip path or pushpin
-		  	var content = event.featureData.infoWindowHtml;
-		  	$('#infotag').html(event.featureData.name);
-	      });
+//		  kmlLayer.addListener('click', function(event) {
+//		  	// do something when clicking on the trip path or pushpin
+//		  	var content = event.featureData.infoWindowHtml;
+//		  	$('#infotag').html(event.featureData.name);
+//	      });
 		}
 		
 		$('#datepicker').datepicker({
@@ -183,7 +192,21 @@
 			kmlLayer.setUrl(srcbase + Math.random() + '&date=' + $('#datepicker').datepicker('getFormattedDate'));
 		}
 
-		function eventtable(eventarray, header) {
+		function eventtable1(eventarray, header) {
+			// returns (part of) table entries for events
+			var txt='';
+			if (eventarray.length>0) {
+		  		txt = '<tr><th>'+header+'&nbsp;</th><th>Until&nbsp;&nbsp;&nbsp;</th><th>Duration</th><th>Distance&nbsp;</th><th>Avg. Speed</th></tr>';
+			  	eventarray.forEach(function(trip) {
+			  		// dates are formatted like: 2019-05-12 12:30:32
+			  		txt += '<tr><td>' + trip.start.datetime.slice(-8,-3) + '</td><td>' + trip.end.datetime.slice(-8,-3) + '</td><td>' + (trip.duration<60 ? trip.duration : Math.floor(trip.duration/60) + " hrs " + trip.duration%60) +' min&nbsp;</td><td>' + trip.dist.toFixed(1) + ' km</td><td>' + trip.speed.toFixed(1) + ' km/h</td></tr>';
+			  	});
+			  	txt += '<tr></tr>';
+		  	}
+		  	return txt;
+		}
+
+		function eventtable2(eventarray, header) {
 			// returns (part of) table entries for events
 			var txt='';
 			if (eventarray.length>0) {

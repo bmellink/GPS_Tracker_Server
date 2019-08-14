@@ -15,6 +15,7 @@ Revisions:
 - 1 Jun 2019: initial coding
 - 10 Jun: first github release
 - 13 Jun: added pin points, clean up code and layout
+- 14 aug: added distance and average speed calculations to trips and total of the day
 */
 
 error_reporting(E_ERROR | E_PARSE);
@@ -106,7 +107,8 @@ $daterecs = Model::factory('Gpsdata')
 // Note: alternative approach would be use bit 0 of the status column.
 $trips = $tripids = array();
 $status = 0; // 0=stop, 1,2,3=may move, 4=move, 5,6,7=may stop
-$tripstart = $tripend = $lastone = $firstone = array();
+$tripstart = $tripend = $lastone = $firstone = $prior = array();
+$tripdist = 0; $totdist = 0;
 
 // status/alarm codes based on bits
 $powererr = array();  // power lost (1 on bit 7)
@@ -122,7 +124,10 @@ foreach($daterecs as $i=>$rec) {
   if ($i==0) $firstone = $lastone;
   if ($i>0) switch($status) { // a trip is not allowed to start as the very first datapoint of the day
     case 0: // stopped
-        if ($rec->speed == 0) $tripstart = $rec->as_array();
+        if ($rec->speed == 0) {
+          $tripstart = $rec->as_array();
+          $tripdist = 0;
+        }
     case 1: // may move step 1
     case 2: // may move step 2
     case 3: // may move step 3
@@ -138,22 +143,45 @@ foreach($daterecs as $i=>$rec) {
     default:
         if ($rec->speed == 0) {
           $d = date_diff(date_create($tripstart['gpstime']), date_create($tripend['gpstime']));
-          $trips[] = array('start' => $tripstart, 'end' => $tripend, 'duration' => $d->h*60 + $d->i + ($d->s>=30 ? 1 : 0));
+          $secs = $d->h*3600 + $d->i*60 + $d->s;
+          $speed = ($secs>0 ? (3600*$tripdist/$secs) : 0);
+          $trips[] = array(
+            'start' => $tripstart, 
+            'end' => $tripend, 
+            'duration' => $d->h*60 + $d->i + ($d->s>=30 ? 1 : 0),
+            'dist' => $tripdist,
+            'speed' => $speed
+          );
           $tripids[] = $tripstart['id']; // for kml generation
           $status = 0; 
           $tripstart = $rec->as_array(); // could be start next trip if we have very short stop
+          $totdist += $tripdist;
+          $tripdist = 0;
         } else $status = 4;
         break;
+  }
+  if ($status>0) {
+    $tripdist += calcDist($prior['lat'], $prior['long'], $rec->lat, $rec->long);
   }
   errorhandling($powererr, (floor($rec->status/10000000)>0), $rec->as_array(), $powerstat);
   errorhandling($starterr, (floor($rec->status/1000000)%10>0), $rec->as_array(), $chargestat);
   errorhandling($shockerr, $rec->err==7, $rec->as_array(), $shockstat);
   errorhandling($chargeerr, $rec->err==2, $rec->as_array(), $startstat);
+  $prior = $lastone;
 }
 if ($status >= 4) {
   // handle case when we have processed all data points and we are still moving
   $d = date_diff(date_create($tripstart['gpstime']), date_create($lastone['gpstime']));
-  $trips[] = array('start' => $tripstart, 'end' => $lastone, 'duration' => $d->h*60 + $d->i + ($d->s>=30 ? 1 : 0));
+  $secs = $d->h*3600 + $d->i*60 + $d->s;
+  $speed = ($secs>0 ? (3600*$tripdist/$secs) : 0);
+  $trips[] = array(
+    'start' => $tripstart, 
+    'end' => $lastone, 
+    'duration' => $d->h*60 + $d->i + ($d->s>=30 ? 1 : 0),
+    'dist' => $tripdist,
+    'speed' => $speed
+  );
+  $totdist += $tripdist;
   $tripids[] = $tripstart['id']; // for kml generation
 }
 errorhandling($powererr, 0, $lastone, $powerstat);
@@ -188,6 +216,15 @@ $docNode = $parNode->appendChild($dnode);
 
 // The doc description field contains json_encoded data which we need to display the calendar view and other
 // information about a given date
+// first calculate total trip duration
+$duration = 0; $travelduration = 0;
+foreach ($trips as $t=>$trip) {
+  $travelduration += $trip['duration'];
+  if ($t==0) $veryfirst = $trip['start'];
+  $d = date_diff(date_create($veryfirst['gpstime']), date_create($trip['end']['gpstime']));
+  $duration = $d->h*60 + $d->i + ($d->s>=30 ? 1 : 0);
+}
+
 $docDesc = $dom->createElement('description', json_encode(
   array(
     'alldates' => $alldates,  // list of all dates for which we have data (and where there is movement)
@@ -203,6 +240,9 @@ $docDesc = $dom->createElement('description', json_encode(
     'chargeerr' => $chargeerr,// array of events related to ecternal charging of boat battery (on/off)
     'age'      => (time() - strtotime($lastone['datetime'])), // age (in seconds) of last record
     'numpoints'=> $numpoints,
+    'distance' => $totdist,
+    'duration' => $duration,
+    'moving'   => $travelduration,
   )
 ));
 
@@ -301,7 +341,8 @@ if (count($daterecs)>0) {
       if ($istrip = in_array($rec->id, $tripids)) {
         // the segment is a start of a trip, we find the right one and create the entire description
         foreach ($trips as $trip) if ($trip['start']['id']==$rec->id) {
-          $hst2 = 'Trip: '.(substr($rec->gpstime,0,5)).' -> '.(substr($trip['end']['gpstime'],0,5));
+          $hst2 = 'Trip: '.(substr($rec->gpstime,0,5)).' -> '.(substr($trip['end']['gpstime'],0,5)).
+                ' ('.round($trip['dist'],1).'km)';
         }
       } 
 
@@ -366,6 +407,24 @@ function addplacemarkpin($id, $name, $lat, $long, $styleUrl) {
   $docNode->appendChild($PlacemarkNode);
 }
 
+function calcDist($lat1, $lon1, $lat2, $lon2) {
+  // distance calculation as the crow flies using haversine
+  $R = 6371; // km
+  $dLat = toRad($lat2-$lat1);
+  $dLon = toRad($lon2-$lon1);
+  $lat1 = toRad($lat1);
+  $lat2 = toRad($lat2);
+
+  $a = sin($dLat/2) * sin($dLat/2) +sin($dLon/2) * sin($dLon/2) * cos($lat1) * cos($lat2); 
+  $c = 2 * atan2(sqrt($a), sqrt(1-$a)); 
+  $d = $R * $c;
+  return $d;
+}
+
+// Converts numeric degrees to radians
+function toRad($Value) {
+    return $Value * pi() / 180;
+}
 
 
 ?>
