@@ -8,7 +8,7 @@ define('DBHOST', '127.0.0.1');      // IP address of host with mysql database (a
 define('DBUSER', 'xxxxx');      	// user to login into mysql database
 define('DBPASSWORD', 'xxxx');    	// password mysql database
 define('DBNAME', 'gps');       	  // name of database (rename to your liking)
-define('DBTIMEZONE', "Europe/Amsterdam"); // Local time for Mysql database
+define('DBTIMEZONE', "Europe/Amsterdam"); // Local time for Mysql database - see https://www.php.net/manual/en/timezones.php
 
 // Port exposed to the internet to receive GPRS messages from device
 // In case you have a NAT router to the internet, the address should be the local ethernet port address of your server

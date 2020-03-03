@@ -14,6 +14,10 @@ Revisions:
 - 4 May 2019 - created
 - 19 May 2019 - first live 
 - 22 May 2019 - added column err in database
+- 23 Feb 2020 - fixed problem with timezone (gmtdiff) if script runs multiple months crossing a daylight savings change
+
+057045186956 - Ben
+057045206556 - BM
 
 Please note the device consumes more power then you may expect:
 - 60-80 mA when charging battery
@@ -136,7 +140,7 @@ date_default_timezone_set(DBTIMEZONE);
 // ensure we set our php script to the same time zone as the database
 date_default_timezone_set(DBTIMEZONE);
 // gps datetime info will be in GMT, so we need to know the difference
-$gmtdiff = date('Z'); // in seconds. positive for the East, negative for the west of GMT
+$gmtdiff = date('Z'); // timezone difference in seconds. positive for the East, negative for the west of GMT
 
 // setup socket server
 $socket = stream_socket_server(GPSPORT, $errno, $errstr, STREAM_SERVER_BIND|STREAM_SERVER_LISTEN);
@@ -161,6 +165,8 @@ $clients = array(
 
 while (true) {
   echo (count($clients)-1); // show once every 60 seconds how many connections we have
+
+  $gmtdiff = date('Z'); // need to recalc timezone difference in seconds if this script runs throughout a daylight savings change throughout the year
 
   // first we look if we have any duplicate entries (same serial number). This means the client reconnected
   // without clearly shutting down the connection
